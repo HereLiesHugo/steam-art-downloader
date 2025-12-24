@@ -1,6 +1,8 @@
 import requests
-from typing import Optional, Dict, Tuple
-import time
+from typing import Optional, Dict
+import logging
+
+logger = logging.getLogger(__name__)
 
 class SteamDBFetcher:
     """
@@ -8,7 +10,6 @@ class SteamDBFetcher:
     """
     
     # URL Templates for various assets
-    # These are standard Steam CDN paths.
     URL_TEMPLATES = {
         "header": "https://steamcdn-a.akamaihd.net/steam/apps/{app_id}/header.jpg",
         "library_600x900_2x": "https://steamcdn-a.akamaihd.net/steam/apps/{app_id}/library_600x900_2x.jpg",
@@ -17,22 +18,40 @@ class SteamDBFetcher:
         "capsule_231x87": "https://steamcdn-a.akamaihd.net/steam/apps/{app_id}/capsule_231x87.jpg"
     }
 
-    # Suggested filenames for saving to Steam Grid
-    # Steam Custom Images usually expect specific naming for the vertical grid, 
-    # but for "header" or "hero" in the new library, they use different naming or the user manually sets them.
-    # However, common tools naming convention is often used.
-    # We will use keys as internal identifiers.
-    FILE_EXTENSIONS = {
-        "header": ".jpg",
-        "library_600x900_2x": ".jpg",
-        "library_hero_2x": ".jpg",
-        "logo": ".png",
-        "capsule_231x87": ".jpg"
-    }
-
     HEADERS = {
         "User-Agent": "SteamArtDownloader/1.0 (Educational/Personal Project)"
     }
+
+    @staticmethod
+    def fetch_image(app_id: str, key: str) -> Optional[bytes]:
+        """
+        Fetches a single artwork image by key (e.g., 'header', 'logo').
+        """
+        if not app_id.isdigit():
+            logger.error(f"Invalid AppID: {app_id}")
+            return None
+            
+        url_template = SteamDBFetcher.URL_TEMPLATES.get(key)
+        if not url_template:
+            logger.error(f"Invalid artwork type: {key}")
+            return None
+            
+        url = url_template.format(app_id=app_id)
+        logger.info(f"Fetching {key}: {url}")
+        
+        try:
+            # Short timeout to keep UI snappy if threaded
+            response = requests.get(url, headers=SteamDBFetcher.HEADERS, timeout=5)
+            
+            if response.status_code == 200 and 'image' in response.headers.get('content-type', ''):
+                return response.content
+            else:
+                logger.warning(f"Failed to fetch {key} (Status: {response.status_code})")
+                return None
+        
+        except requests.RequestException as e:
+            logger.error(f"Error fetching {key}: {e}")
+            return None
 
     @staticmethod
     def fetch_all_artwork(app_id: str) -> Dict[str, Optional[bytes]]:
@@ -41,29 +60,8 @@ class SteamDBFetcher:
         Returns a dictionary {type_key: image_bytes or None}.
         """
         results = {}
-        
-        if not app_id.isdigit():
-            print(f"Invalid AppID: {app_id}")
-            return results
-
-        for key, url_template in SteamDBFetcher.URL_TEMPLATES.items():
-            url = url_template.format(app_id=app_id)
-            print(f"Fetching {key}: {url}")
-            
-            try:
-                # Short timeout to keep UI snappy if threaded
-                response = requests.get(url, headers=SteamDBFetcher.HEADERS, timeout=5)
-                
-                if response.status_code == 200 and 'image' in response.headers.get('content-type', ''):
-                    results[key] = response.content
-                else:
-                    print(f"Failed to fetch {key} (Status: {response.status_code})")
-                    results[key] = None
-            
-            except requests.RequestException as e:
-                print(f"Error fetching {key}: {e}")
-                results[key] = None
-                
+        for key in SteamDBFetcher.URL_TEMPLATES.keys():
+            results[key] = SteamDBFetcher.fetch_image(app_id, key)
         return results
 
     @staticmethod
@@ -80,7 +78,7 @@ class SteamDBFetcher:
                 if data and str(app_id) in data and data[str(app_id)]['success']:
                     return data[str(app_id)]['data']['name']
         except Exception as e:
-            print(f"Error fetching game name: {e}")
+            logger.error(f"Error fetching game name: {e}")
         
         return "Unknown Game"
 
@@ -104,7 +102,7 @@ class SteamDBFetcher:
                             'img': item.get('tiny_image', '')
                         })
         except Exception as e:
-            print(f"Error searching games: {e}")
+            logger.error(f"Error searching games: {e}")
         return results
 
     @staticmethod
@@ -117,5 +115,5 @@ class SteamDBFetcher:
                 f.write(img_data)
             return True
         except OSError as e:
-            print(f"Error saving file to {file_path}: {e}")
+            logger.error(f"Error saving file to {file_path}: {e}")
             return False

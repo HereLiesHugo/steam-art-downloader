@@ -21,18 +21,22 @@ class DownloadWorker(QThread):
         self.last_path = ""
 
     def run(self):
-        total = len(self.app_ids)
+        # Calculate total steps: games * artwork_types
+        # We need to skip game name fetch in the count or just add it? 
+        # Let's count (fetch name + fetch each image) per game? 
+        # For simplicity, let's just count images. 
+        artwork_keys = list(SteamDBFetcher.URL_TEMPLATES.keys())
+        total_steps = len(self.app_ids) * len(artwork_keys)
+        current_step = 0
+        
         success_count = 0
         
         # Get install path from settings
         settings = SettingsManager()
         install_root = Path(settings.install_path)
         
-        for i, app_id in enumerate(self.app_ids):
-            # Report progress start of item
-            self.progress.emit(i, total)
-            
-            # 1. Fetch Game Name
+        for app_id in self.app_ids:
+            # 1. Fetch Game Name (Not counted in progress steps for simplicity, or we could add 1)
             game_name = SteamDBFetcher.get_game_name(app_id)
             
             # Sanitize folder name
@@ -45,15 +49,13 @@ class DownloadWorker(QThread):
                 base_dir.mkdir(parents=True, exist_ok=True)
             except OSError as e:
                 self.item_finished.emit({}, f"Error creating folder for {app_id}: {e}", "")
+                # Skip this app's progress steps? Or mark them done?
+                current_step += len(artwork_keys)
+                self.progress.emit(current_step, total_steps)
                 continue
 
-            # 2. Fetch all artwork types
-            results = SteamDBFetcher.fetch_all_artwork(app_id)
-            if not any(results.values()):
-                self.item_finished.emit({}, f"No artwork found for {game_name}.", "")
-                continue
-
-            # 3. Save Images Locally
+            # 2. Fetch and Save Images Loop
+            results = {} # Store results for preview
             local_saved = 0
             
             # Mapping for local filenames
@@ -64,26 +66,35 @@ class DownloadWorker(QThread):
                 "logo": "logo.png",
                 "capsule_231x87": "capsule_231x87.jpg"
             }
-            for key, data in results.items():
-                if not data: continue
+            
+            for key in artwork_keys:
+                # Fetch
+                img_data = SteamDBFetcher.fetch_image(app_id, key)
+                results[key] = img_data
                 
-                # Local Save
-                if key in local_mapping:
-                    target = base_dir / local_mapping[key]
-                    if SteamDBFetcher.save_image(data, str(target)):
-                        local_saved += 1
-                                    
+                # Save if successful
+                if img_data:
+                    if key in local_mapping:
+                        target = base_dir / local_mapping[key]
+                        if SteamDBFetcher.save_image(img_data, str(target)):
+                            local_saved += 1
+                
+                # Update Progress
+                current_step += 1
+                self.progress.emit(current_step, total_steps)
+
+            # Check success for this game
             if local_saved > 0:
                 success_count += 1
                 msg = f"Downloaded {local_saved} images for '{game_name}'."
                 self.last_path = str(base_dir.resolve())
                 self.item_finished.emit(results, msg, self.last_path)
             else:
-                self.item_finished.emit({}, f"Failed to save images for {game_name}.", "")
+                self.item_finished.emit({}, f"Failed to save {game_name}.", "")
 
         # Final progress update
-        self.progress.emit(total, total)
-        self.finished_batch.emit(f"Batch completed. Successfully downloaded {success_count}/{total} games.")
+        self.progress.emit(total_steps, total_steps)
+        self.finished_batch.emit(f"Batch completed. Successfully downloaded {success_count}/{len(self.app_ids)} games.")
 
 from ui.search_dialog import SearchDialog
 
@@ -117,6 +128,14 @@ class DownloaderTab(QWidget):
         self.progress_bar.setVisible(False)
         layout.addWidget(self.progress_bar)
 
+        # Inline Log Label
+        self.log_label = QLabel("")
+        self.log_label.setAlignment(Qt.AlignLeft)
+        self.log_label.setStyleSheet("color: gray; font-size: 10px;")
+        self.log_label.setWordWrap(True)
+        self.log_label.setFixedHeight(30) # Roughly 2 lines
+        layout.addWidget(self.log_label)
+
         # Action Buttons
         action_layout = QHBoxLayout()
         self.open_folder_btn = QPushButton("Open Destination Folder")
@@ -140,6 +159,34 @@ class DownloaderTab(QWidget):
         # Keep track of grid position
         self.grid_row = 0
         self.grid_col = 0
+
+        # Setup inline logging
+        self.setup_inline_logging()
+
+    def setup_inline_logging(self):
+        from ui.log_window import QtLogHandler
+        import logging
+
+        self.inline_handler = QtLogHandler()
+        # Only show simple message, no timestamp for inline
+        self.inline_handler.setFormatter(logging.Formatter('%(message)s'))
+        self.inline_handler.log_signal.connect(self.update_inline_log)
+        
+        logging.getLogger().addHandler(self.inline_handler)
+
+    def update_inline_log(self, message):
+        # Keep last 2 lines
+        current_text = self.log_label.text()
+        lines = current_text.split('\n') if current_text else []
+        lines.append(message)
+        
+        # Trim to last 2
+        if len(lines) > 2:
+            lines = lines[-2:]
+        
+        self.log_label.setText("\n".join(lines))
+
+
 
     def start_download(self):
         user_input = self.appid_input.text().strip()
