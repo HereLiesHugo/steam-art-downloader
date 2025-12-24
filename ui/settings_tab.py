@@ -1,10 +1,14 @@
+
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                                QLineEdit, QPushButton, QFileDialog, QCheckBox, QMessageBox, QGroupBox)
+from PySide6.QtCore import Signal
 from core.settings import SettingsManager
 from core.steam_paths import SteamPathDetector
 import os
 
 class SettingsTab(QWidget):
+    show_logs_requested = Signal()
+
     def __init__(self):
         super().__init__()
         self.settings = SettingsManager()
@@ -54,6 +58,11 @@ class SettingsTab(QWidget):
         save_btn = QPushButton("Save Settings")
         save_btn.clicked.connect(self.save_settings)
         layout.addWidget(save_btn)
+        
+        # Show Logs Button
+        logs_btn = QPushButton("Show Application Logs")
+        logs_btn.clicked.connect(self.show_logs_requested.emit)
+        layout.addWidget(logs_btn)
         
         layout.addStretch()
 
