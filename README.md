@@ -16,28 +16,68 @@ A desktop application to search for and download official Steam store artwork fo
 
 ## Installation
 
-1.  **Clone the repository** or download the source code.
-2.  **Install Dependencies**: This application requires Python 3 and the following packages:
+### Option 1: Precompiled (Windows Only)
+
+The easiest way to use the application is to download the standalone executable.
+
+1. Download the latest version from [GitHub Releases](https://github.com/HereLiesHugo/steam-art-downloader/releases).
+2. Extract the files to a directory of your choice.
+3. Run `SteamArtDownloader.exe`.
+
+### Option 2: Running from Source
+
+If you are on Linux/macOS or prefer to run the Python code directly:
+
+1.  **Clone the repository**:
+
     ```bash
-    pip install pyside6 requests
+    git clone https://github.com/HereLiesHugo/steam-art-downloader.git
+    cd steam-art-downloader
     ```
 
-## Usage
+2.  **Install Dependencies**:
+    This application requires Python 3.11+.
 
-1.  **Run the Application**:
+    ```bash
+    pip install -r requirements.txt
+    ```
 
+    _Note: On some systems, use `pip3` instead of `pip`._
+
+3.  **Run the Application**:
     ```bash
     python main.py
     ```
 
-2.  **Download Artwork**:
+### Option 3: Building the Executable
 
-    - **Single Game**: Enter a Game Name (e.g., "Portal 2") or AppID (e.g., "620") and click "Fetch & Install". if you search by name, a selection dialog will appear.
+To create a standalone EXE yourself (e.g., for development):
+
+1.  **Install PyInstaller**:
+
+    ```bash
+    pip install pyinstaller
+    ```
+
+2.  **Build**:
+
+    ```bash
+    pyinstaller steam_art_downloader.spec
+    ```
+
+3.  **Find Output**:
+    The executable will be generated in the `dist/SteamArtDownloader` directory.
+
+## Usage
+
+1.  **Download Artwork**:
+
+    - **Single Game**: Enter a Game Name (e.g., "Portal 2") or AppID (e.g., "620") and click "Fetch & Install". If you search by name, a selection dialog will appear.
     - **Batch**: Enter multiple AppIDs separated by spaces (e.g., "620 400 220") to download artwork for all of them sequentially.
 
-3.  **Settings**:
-    - Navigate to the **Settings** tab to change the default download folder.
-    - Click "Show Application Logs" to view the internal log history.
+2.  **Settings**:
+    - NAVIGATE to the **Settings** tab to change the default download folder.
+    - CLICK "Show Application Logs" to view the internal log history.
 
 ## Project Structure
 
@@ -48,4 +88,4 @@ A desktop application to search for and download official Steam store artwork fo
 
 ## License
 
-This project is for educational and personal use. All downloaded artwork is property of their respective owners and Valve Corporation.
+[MIT License](LICENSE)
