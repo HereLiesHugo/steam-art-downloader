@@ -18,9 +18,40 @@ A desktop application to search for and download official Steam store artwork fo
 
 1.  **Clone the repository** or download the source code.
 2.  **Install Dependencies**: This application requires Python 3 and the following packages:
+
     ```bash
-    pip install pyside6 requests
+    pip install -r requirements.txt
     ```
+    or (MacOS/Linux)
+
+    ```bash
+    pip3 install -r requirements.txt
+    ```
+
+    **Option 1:** Build the application from source
+    1. Install PyInstaller
+    ```bash
+    pip install pyinstaller
+    ```
+    2. Build the application
+    ```bash
+    pyinstaller steam_art_downloader.spec
+    ```
+    3. Run the application
+
+    **Option 2:** Just run the application (requires Python 3.11+)
+    1. Run the application
+    ```bash
+    python main.py
+    ```
+
+
+
+## Installation (Windows only)
+
+1. Download the precompiled version from [here](https://github.com/HereLiesHugo/steam-art-downloader/releases)
+2. Extract the files to a directory of your choice
+3. Run the application from the directory
 
 ## Usage
 
@@ -29,6 +60,8 @@ A desktop application to search for and download official Steam store artwork fo
     ```bash
     python main.py
     ```
+    or (windows only):
+    download the precompiled version from [here](https://github.com/HereLiesHugo/steam-art-downloader/releases)
 
 2.  **Download Artwork**:
 
@@ -48,4 +81,4 @@ A desktop application to search for and download official Steam store artwork fo
 
 ## License
 
-This project is for educational and personal use. All downloaded artwork is property of their respective owners and Valve Corporation.
+[MIT License](LICENSE)
