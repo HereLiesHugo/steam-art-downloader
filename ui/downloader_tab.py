@@ -22,13 +22,9 @@ class DownloadWorker(QThread):
 
     def run(self):
         # Calculate total steps: games * artwork_types
-        # We need to skip game name fetch in the count or just add it? 
-        # Let's count (fetch name + fetch each image) per game? 
-        # For simplicity, let's just count images. 
         artwork_keys = list(SteamDBFetcher.URL_TEMPLATES.keys())
         total_steps = len(self.app_ids) * len(artwork_keys)
-        current_step = 0
-        
+        self.current_step = 0
         success_count = 0
         
         # Get install path from settings
@@ -36,65 +32,72 @@ class DownloadWorker(QThread):
         install_root = Path(settings.install_path)
         
         for app_id in self.app_ids:
-            # 1. Fetch Game Name (Not counted in progress steps for simplicity, or we could add 1)
-            game_name = SteamDBFetcher.get_game_name(app_id)
-            
-            # Sanitize folder name
-            safe_name = "".join([c for c in game_name if c.isalnum() or c in (' ', '-', '_')]).strip()
-            folder_name = f"{safe_name} ({app_id})"
-            
-            # Create base directory
-            base_dir = install_root / folder_name
-            try:
-                base_dir.mkdir(parents=True, exist_ok=True)
-            except OSError as e:
-                self.item_finished.emit({}, f"Error creating folder for {app_id}: {e}", "")
-                # Skip this app's progress steps? Or mark them done?
-                current_step += len(artwork_keys)
-                self.progress.emit(current_step, total_steps)
-                continue
-
-            # 2. Fetch and Save Images Loop
-            results = {} # Store results for preview
-            local_saved = 0
-            
-            # Mapping for local filenames
-            local_mapping = {
-                "header": "header.jpg",
-                "library_600x900_2x": "library_600x900_2x.jpg",
-                "library_hero_2x": "library_hero_2x.jpg",
-                "logo": "logo.png",
-                "capsule_231x87": "capsule_231x87.jpg"
-            }
-            
-            for key in artwork_keys:
-                # Fetch
-                img_data = SteamDBFetcher.fetch_image(app_id, key)
-                results[key] = img_data
-                
-                # Save if successful
-                if img_data:
-                    if key in local_mapping:
-                        target = base_dir / local_mapping[key]
-                        if SteamDBFetcher.save_image(img_data, str(target)):
-                            local_saved += 1
-                
-                # Update Progress
-                current_step += 1
-                self.progress.emit(current_step, total_steps)
-
-            # Check success for this game
-            if local_saved > 0:
+            if self._process_game(app_id, install_root, artwork_keys, total_steps):
                 success_count += 1
-                msg = f"Downloaded {local_saved} images for '{game_name}'."
-                self.last_path = str(base_dir.resolve())
-                self.item_finished.emit(results, msg, self.last_path)
-            else:
-                self.item_finished.emit({}, f"Failed to save {game_name}.", "")
 
         # Final progress update
         self.progress.emit(total_steps, total_steps)
         self.finished_batch.emit(f"Batch completed. Successfully downloaded {success_count}/{len(self.app_ids)} games.")
+
+    def _process_game(self, app_id, install_root, artwork_keys, total_steps) -> bool:
+        # 1. Fetch Game Name
+        game_name = SteamDBFetcher.get_game_name(app_id)
+        
+        # Sanitize folder name
+        safe_name = "".join([c for c in game_name if c.isalnum() or c in (' ', '-', '_')]).strip()
+        folder_name = f"{safe_name} ({app_id})"
+        
+        # Create base directory
+        base_dir = install_root / folder_name
+        try:
+            base_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            self.item_finished.emit({}, f"Error creating folder for {app_id}: {e}", "")
+            self.current_step += len(artwork_keys)
+            self.progress.emit(self.current_step, total_steps)
+            return False
+
+        # 2. Fetch and Save Images Loop
+        results, local_saved = self._fetch_and_save_images(app_id, base_dir, artwork_keys, total_steps)
+
+        # Check success for this game
+        if local_saved > 0:
+            msg = f"Downloaded {local_saved} images for '{game_name}'."
+            self.last_path = str(base_dir.resolve())
+            self.item_finished.emit(results, msg, self.last_path)
+            return True
+        else:
+            self.item_finished.emit({}, f"Failed to save {game_name}.", "")
+            return False
+
+    def _fetch_and_save_images(self, app_id, base_dir, artwork_keys, total_steps):
+        results = {} 
+        local_saved = 0
+        
+        local_mapping = {
+            "header": "header.jpg",
+            "library_600x900_2x": "library_600x900_2x.jpg",
+            "library_hero_2x": "library_hero_2x.jpg",
+            "logo": "logo.png",
+            "capsule_231x87": "capsule_231x87.jpg"
+        }
+        
+        for key in artwork_keys:
+            # Fetch
+            img_data = SteamDBFetcher.fetch_image(app_id, key)
+            results[key] = img_data
+            
+            # Save if successful
+            if img_data and key in local_mapping:
+                target = base_dir / local_mapping[key]
+                if SteamDBFetcher.save_image(img_data, str(target)):
+                    local_saved += 1
+            
+            # Update Progress
+            self.current_step += 1
+            self.progress.emit(self.current_step, total_steps)
+            
+        return results, local_saved
 
 from ui.search_dialog import SearchDialog
 
