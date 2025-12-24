@@ -1,0 +1,11 @@
+{
+    "steam_path": "",
+    "download_types": {
+        "header": true,
+        "capsule": true,
+        "hero": true,
+        "logo": true,
+        "library_600x900": true
+    },
+    "install_path": "art-downloads"
+}
