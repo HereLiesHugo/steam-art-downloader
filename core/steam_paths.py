@@ -24,47 +24,66 @@ class SteamPathDetector:
         3. Default locations (All OS)
         """
         # 1. Check settings path override
-        if settings_path:
-            path = Path(settings_path)
-            if path.exists() and path.is_dir():
-                return path
+        path = SteamPathDetector._check_settings_path(settings_path)
+        if path:
+            return path
 
         system = platform.system()
-        user_home = Path.home()
-        candidates = []
-
+        
+        # 2. Check Registry on Windows
         if system == "Windows":
-            # 2. Check Registry on Windows
-            if winreg:
-                try:
-                    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as key:
-                        val, _ = winreg.QueryValueEx(key, "SteamPath")
-                        # Registry paths often use forward slashes or backslashes
-                        reg_path = Path(val)
-                        if reg_path.exists():
-                            return reg_path
-                except OSError:
-                    pass
+            path = SteamPathDetector._get_windows_registry_path()
+            if path:
+                return path
 
-            candidates = [
-                Path("C:/Program Files (x86)/Steam"),
-                Path("C:/Program Files/Steam"),
-            ]
-        elif system == "Linux":
-            candidates = [
-                user_home / ".local/share/Steam",
-                user_home / ".steam/steam",
-            ]
-        elif system == "Darwin":  # macOS
-            candidates = [
-                user_home / "Library/Application Support/Steam",
-            ]
-
+        # 3. Check Default Locations
+        candidates = SteamPathDetector._get_platform_candidates(system)
         for path in candidates:
             if path.exists() and path.is_dir():
                 return path
         
         return None
+
+    @staticmethod
+    def _check_settings_path(settings_path: str) -> Optional[Path]:
+        if settings_path:
+            path = Path(settings_path)
+            if path.exists() and path.is_dir():
+                return path
+        return None
+
+    @staticmethod
+    def _get_windows_registry_path() -> Optional[Path]:
+        if not winreg:
+            return None
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as key:
+                val, _ = winreg.QueryValueEx(key, "SteamPath")
+                path = Path(val)
+                if path.exists():
+                    return path
+        except OSError:
+            pass
+        return None
+
+    @staticmethod
+    def _get_platform_candidates(system: str) -> List[Path]:
+        user_home = Path.home()
+        if system == "Windows":
+            return [
+                Path("C:/Program Files (x86)/Steam"),
+                Path("C:/Program Files/Steam"),
+            ]
+        elif system == "Linux":
+            return [
+                user_home / ".local/share/Steam",
+                user_home / ".steam/steam",
+            ]
+        elif system == "Darwin":  # macOS
+            return [
+                user_home / "Library/Application Support/Steam",
+            ]
+        return []
 
     @staticmethod
     def get_userdata_path(steam_root: Optional[Path] = None, override_path: str = "") -> Optional[Path]:
