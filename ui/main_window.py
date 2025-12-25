@@ -5,18 +5,17 @@ import logging
 
 from ui.downloader_tab import DownloaderTab
 from ui.settings_tab import SettingsTab
+from ui.manager_tab import ManagerTab
 from ui.log_window import LogWindow, QtLogHandler
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Steam Art Downloader v0.8")
-        self.resize(800, 700)
+        self.setWindowTitle("Steam Art Downloader v0.9")
+        self.resize(1000, 750) # Increased size for Manager Tab
         
         # Setup Logging
         self.setup_logging()
-
-
 
         self.init_ui()
 
@@ -55,11 +54,13 @@ class MainWindow(QMainWindow):
 
         self.tabs = QTabWidget()
         self.downloader_tab = DownloaderTab()
+        self.manager_tab = ManagerTab()
         self.settings_tab = SettingsTab()
         
         # Connect settings "Show logs" button
         self.settings_tab.show_logs_requested.connect(self.show_log_window)
 
+        self.tabs.addTab(self.manager_tab, "Manager")
         self.tabs.addTab(self.downloader_tab, "Downloader")
         self.tabs.addTab(self.settings_tab, "Settings")
 

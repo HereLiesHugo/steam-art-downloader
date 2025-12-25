@@ -18,12 +18,32 @@ class SettingsTab(QWidget):
         layout = QVBoxLayout(self)
 
         # Steam Path Section
+        steam_group = QGroupBox("Steam Installation")
+        steam_layout = QVBoxLayout()
+        
+        lbl_steam = QLabel("Steam Location (Optional override):")
+        steam_layout.addWidget(lbl_steam)
+        
+        steam_h_layout = QHBoxLayout()
+        self.steam_path_input = QLineEdit()
+        self.steam_path_input.setText(self.settings.steam_path)
+        steam_h_layout.addWidget(self.steam_path_input)
+        
+        steam_browse_btn = QPushButton("Browse")
+        steam_browse_btn.clicked.connect(self.browse_steam_path)
+        steam_h_layout.addWidget(steam_browse_btn)
+        
+        steam_layout.addLayout(steam_h_layout)
+        steam_group.setLayout(steam_layout)
+        layout.addWidget(steam_group)
+
         # Install Path Group
         path_group = QGroupBox("Download Configuration")
         path_layout = QVBoxLayout()
         
         lbl = QLabel("Install Path (where images will be downloaded):")
         path_layout.addWidget(lbl)
+
         
         h_layout = QHBoxLayout()
         self.path_input = QLineEdit()
@@ -71,15 +91,17 @@ class SettingsTab(QWidget):
         if directory:
             self.path_input.setText(directory)
 
+    def browse_steam_path(self):
+        directory = QFileDialog.getExistingDirectory(self, "Select Steam Directory")
+        if directory:
+            self.steam_path_input.setText(directory)
+
     def save_settings(self):
         path = self.path_input.text().strip()
-        
-        if path:
-             # Create if doesn't exist? Or just ensure it's a valid string. 
-             # We rely on worker to create it if missing, but checking here is good UX.
-             pass
+        steam_path = self.steam_path_input.text().strip()
         
         self.settings.install_path = path or "art-downloads"
+        self.settings.steam_path = steam_path
         self.settings.save_settings()
         
         QMessageBox.information(self, "Settings Saved", "Settings updated successfully.")

@@ -70,3 +70,15 @@ class SettingsManager:
     def install_path(self, path: str):
         self._settings["install_path"] = path
         self.save_settings()
+
+    @property
+    def steam_path(self) -> str:
+        """
+        Returns the manually configured Steam path, or empty string.
+        """
+        return self._settings.get("steam_path", "")
+
+    @steam_path.setter
+    def steam_path(self, path: str):
+        self._settings["steam_path"] = path
+        self.save_settings()

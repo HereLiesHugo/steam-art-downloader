@@ -181,3 +181,4 @@ cython_debug/
 
 # Default asset download directory
 art-downloads
+cache
