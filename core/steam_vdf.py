@@ -124,14 +124,21 @@ class VdfParser:
                 elif t == 1: # String
                     res[name] = read_string()
                 elif t == 2: # Int32
+                    if ptr + 4 > len(data): break
                     val = struct.unpack('<I', data[ptr:ptr+4])[0]
                     ptr += 4
                     res[name] = val
+                elif t == 7: # UInt64
+                    if ptr + 8 > len(data): break
+                    val = struct.unpack('<Q', data[ptr:ptr+8])[0]
+                    ptr += 8
+                    res[name] = val
                 else:
-                    # Skip unknown types or legacy bugs?
-                    # Depending on strictness, we might want to just stop or try to recover.
-                    # For shortcuts.vdf, these are the main ones.
-                    pass
+                    # Unknown type - we will likely lose sync here
+                    # Attempt to read a string? Or just break?
+                    # Breaking is safer than reading garbage.
+                    print(f"Warning: Unknown VDF type {t} at {ptr-1} for key {name}")
+                    break
             return res
 
         # Shortcuts.vdf usually starts with \x00shortcuts\x00 then the map starts.

@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
                                QLabel, QLineEdit, QHeaderView, QScrollArea, 
                                QGridLayout, QMessageBox, QFrame, QAbstractItemView)
 from PySide6.QtCore import Qt, QThread, Signal, QSize
-from PySide6.QtGui import QPixmap, QIcon
+from PySide6.QtGui import QPixmap, QIcon, QImage
 
 import shutil
 import logging
@@ -99,8 +99,12 @@ class ArtSlotWidget(QWidget):
         self.lbl_current.setAlignment(Qt.AlignCenter)
         self.lbl_current.setScaledContents(True)
         if current_path and current_path.exists():
-            pix = QPixmap(str(current_path))
-            self.lbl_current.setPixmap(pix)
+            # Bypass QPixmap cache by loading data directly or using QImage
+            image = QImage()
+            if image.load(str(current_path)):
+                self.lbl_current.setPixmap(QPixmap.fromImage(image))
+            else:
+                self.lbl_current.setText("Failed to Load")
         
         comp_layout.addWidget(self.lbl_current)
         
@@ -113,9 +117,10 @@ class ArtSlotWidget(QWidget):
         
         has_new = False
         if cache_path and cache_path.exists():
-            pix = QPixmap(str(cache_path))
-            self.lbl_new.setPixmap(pix)
-            has_new = True
+            image = QImage()
+            if image.load(str(cache_path)):
+                self.lbl_new.setPixmap(QPixmap.fromImage(image))
+                has_new = True
             
         comp_layout.addWidget(self.lbl_new)
         
@@ -131,6 +136,7 @@ class ArtSlotWidget(QWidget):
         self.apply_requested.emit(self.app_id, self.art_type)
 
 class ManagerTab(QWidget):
+    from PySide6.QtGui import QImage # Ensure import if not at top, but usually fine.
     def __init__(self):
         super().__init__()
         self.cache = ImageCache()
@@ -281,20 +287,27 @@ class ManagerTab(QWidget):
         lookup_id = game.real_id if game.real_id else game.app_id
         
         slots = [
-            ("Portrait (600x900)", "library_600x900_2x", f"{game.app_id}p.jpg"),
-            ("Hero Banner", "library_hero_2x", f"{game.app_id}_hero.jpg"),
+            ("Portrait (600x900)", "library_600x900_2x", f"{game.app_id}p.png"),
+            ("Hero Banner", "library_hero_2x", f"{game.app_id}_hero.png"),
             ("Logo", "logo", f"{game.app_id}_logo.png"),
-            ("Header", "header", f"{game.app_id}_header.jpg"),
+            ("Header", "header", f"{game.app_id}.png"),
         ]
         
         row, col = 0, 0
-        
-        target_grid_dir = self._get_grid_target_dir(game)
-        self.target_grid_dir = target_grid_dir
-        
+        target_grid_dirs = []
+        userdata_path = SteamPathDetector.get_userdata_path()
+
+        if userdata_path:
+            target_grid_dirs = SteamPathDetector.get_grid_paths(userdata_path)
+            
         for title, db_key, filename in slots:
-            # Check current
-            current_path = target_grid_dir / filename if target_grid_dir else None
+            # Check current: check ALL users, pick first match
+            current_path = None
+            for grid_dir in target_grid_dirs:
+                check = grid_dir / filename
+                if check.exists():
+                    current_path = check
+                    break
             
             # Check cache using LOOKUP ID (Real ID)
             # If no real_id, we can't really cache effectively from SteamDB anyway.
@@ -350,62 +363,170 @@ class ManagerTab(QWidget):
         if self.selected_game:
             self.load_game_details(self.selected_game)
 
-    def apply_art(self, app_id, art_type):
-        logger.info(f"Apply requested for AppID: {app_id}, Type: {art_type}")
-        
-        if not self.target_grid_dir:
-            logger.error("Target grid directory is None.")
-            QMessageBox.warning(self, "Error", "Could not determine Steam userdata grid folder.")
-            return
-            
-        if not self.target_grid_dir.exists():
-            try:
-                self.target_grid_dir.mkdir(parents=True, exist_ok=True)
-            except OSError as e:
-                QMessageBox.warning(self, "Error", f"Failed to create grid folder: {e}")
-                return
+    def apply_art(self, download_app_id, art_type):
+        """
+        Applies artwork to Steam Grid.
+        CRITICAL: 
+        - download_app_id is the Steam Store ID used for downloading/caching.
+        - apply_id must be derived differently for Non-Steam games.
+        """
+        logger.info(f"--- Apply Request Started ---")
+        logger.info(f"Game: {self.selected_game.name} (IsSteam: {self.selected_game.is_steam})")
+        logger.info(f"Download AppID: {download_app_id}, Type: {art_type}")
 
-        # Map art_type to filename
-        filename_map = {
-            "library_600x900_2x": f"{app_id}p.jpg",
-            "library_hero_2x": f"{app_id}_hero.jpg",
-            "logo": f"{app_id}_logo.png",
-            "header": f"{app_id}_header.jpg"
+        # 1. Verify Cache (Source)
+        # We assume download_app_id is valid for the cache (it's what we used to download).
+        cached_path = self.cache.get_image_path(download_app_id, art_type)
+        if not cached_path.exists():
+            msg = f"Image not found in cache for ID {download_app_id}."
+            logger.error(msg)
+            QMessageBox.warning(self, "Error", "Image not found. Please download it first.")
+            return
+
+        # 2. Determine Apply ID (Target)
+        apply_id = None
+        
+        if self.selected_game.is_steam:
+            # Steam Game: Use the Store AppID directly.
+            apply_id = self.selected_game.app_id
+            logger.info(f"Steam Game detected. Using AppID: {apply_id}")
+        else:
+            # Non-Steam Game: MUST generate ID from shortcuts.vdf (strictly).
+            # Even if we matched it to a Steam Store ID, we CANNOT use that for the filename.
+            logger.info("Non-Steam Game detected. resolving ID from shortcuts.vdf...")
+            apply_id = self._resolve_non_steam_id_live(self.selected_game.name)
+            
+            if not apply_id:
+                # Fallback to the ID we scanned initially (better than nothing)
+                logger.warning("Live VDF lookup failed. Falling back to scanned ID.")
+                apply_id = self.selected_game.app_id
+            
+            logger.info(f"Resolved Non-Steam Apply ID: {apply_id}")
+
+        if not apply_id:
+            QMessageBox.critical(self, "Error", "Could not determine AppID for application.")
+            return
+
+        # 3. Determine Format & Filenames
+        # Steam Grid Rules: PNG Only.
+        # Suffix Mapping
+        suffix_map = {
+            "library_600x900_2x": "p.png",          # Vertical
+            "library_hero_2x": "_hero.png",         # Hero
+            "logo": "_logo.png",            # Logo
+            "header": ".png"                # Header/Capsule
         }
         
-        filename = filename_map.get(art_type)
-        if not filename:
+        suffix = suffix_map.get(art_type)
+        if not suffix:
+            logger.error(f"Unknown art type: {art_type}")
             return
             
-        cached_path = self.cache.get_image_path(app_id, art_type)
-        if not cached_path.exists():
-            QMessageBox.warning(self, "Error", "Image not found in cache. Please download it first.")
-            return
-            
-        target_path = self.target_grid_dir / filename
-        
-        logger.info(f"Copying {cached_path} -> {target_path}")
-        try:
-            shutil.copy2(cached_path, target_path)
-            # Refresh to show it
-            self.load_game_details(self.selected_game)
-            logger.info("Apply successful.")
-        except Exception as e:
-            logger.error(f"Failed to apply artwork: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to apply artwork: {e}")
+        target_filename = f"{apply_id}{suffix}"
+        logger.info(f"Target Filename: {target_filename}")
 
-    def _get_grid_target_dir(self, game: DetectedGame) -> Optional[Path]:
+        # 4. Multi-User Application
+        userdata_path = SteamPathDetector.get_userdata_path()
+        if not userdata_path:
+             QMessageBox.warning(self, "Error", "Could not find Steam userdata folder.")
+             return
+
+        grid_paths = SteamPathDetector.get_grid_paths(userdata_path)
+        if not grid_paths:
+             QMessageBox.warning(self, "Error", "No Steam users found/config/grid directories.")
+             return
+
+        # 5. Apply Steps (Convert & Save)
+        success_count = 0
+        
+        # Load Source Image using QImage to handle conversion
+        image = QImage()
+        if not image.load(str(cached_path)):
+            logger.error(f"Failed to load source image: {cached_path}")
+            QMessageBox.warning(self, "Error", "Failed to load cached image file.")
+            return
+
+        for grid_dir in grid_paths:
+            try:
+                # Create directory if missing
+                grid_dir.mkdir(parents=True, exist_ok=True)
+                
+                target_path = grid_dir / target_filename
+                
+                logger.info(f"Writing to: {target_path}")
+                
+                # Save as PNG
+                if image.save(str(target_path), "PNG"):
+                    success_count += 1
+                else:
+                    logger.error(f"Failed to save PNG to {target_path}")
+
+            except Exception as e:
+                logger.error(f"Exception writing to {grid_dir}: {e}")
+
+        # 6. Finish
+        if success_count > 0:
+            logger.info(f"Applied successfully to {success_count} locations.")
+            self.load_game_details(self.selected_game) # Refresh UI preview
+            QMessageBox.information(self, "Success", 
+                                    f"Artwork applied for {self.selected_game.name}!\n\n"
+                                    f"Applied to {success_count} user(s).\n"
+                                    "IMPORTANT: Restart Steam to see changes.")
+        else:
+            QMessageBox.warning(self, "Error", "Failed to apply artwork to any Steam user.")
+
+
+    def _resolve_non_steam_id_live(self, target_name: str) -> Optional[str]:
+        """
+        Re-scans shortcuts.vdf to generate the EXACT ID Steam expects.
+        Uses zlib.crc32(exe+name) | 0x80000000.
+        """
+        import zlib
+        from core.steam_vdf import VdfParser
+
         userdata_path = SteamPathDetector.get_userdata_path()
         if not userdata_path:
             return None
-            
-        if game.user_id:
-             return userdata_path / game.user_id / "config" / "grid"
-        
-        # Fallback to first found user
-        users = SteamPathDetector.get_grid_paths(userdata_path)
-        if users:
-            return users[0]
-            
-        return userdata_path / "anonymous" / "config" / "grid"
+
+        # Iterate all users to find the shortcut
+        for user_dir in userdata_path.iterdir():
+            if not user_dir.is_dir() or not user_dir.name.isdigit():
+                continue
+
+            shortcuts_path = user_dir / "config" / "shortcuts.vdf"
+            if not shortcuts_path.exists():
+                continue
+
+            try:
+                data = VdfParser.load_binary(str(shortcuts_path))
+                shortcuts = data.get("shortcuts", {})
+
+                for key, entry in shortcuts.items():
+                    if not isinstance(entry, dict): continue
+
+                    app_name = entry.get("AppName") or entry.get("appname")
+                    exe_path = entry.get("Exe") or entry.get("exe")
+
+                    # Name must match exactly (case-sensitive usually in VDF logic, but verify?)
+                    # We'll assume the scanner found it by name, so we match by name.
+                    if app_name == target_name:
+                        if not exe_path: exe_path = ""
+                        
+                        # GENERATION LOGIC STRICT
+                        # f"{exe}{name}"
+                        combined = f"{exe_path}{app_name}"
+                        result_int = zlib.crc32(combined.encode("utf-8")) | 0x80000000
+                        result_str = str(result_int)
+                        
+                        logger.debug(f"Live Resolve: '{app_name}' : '{exe_path}' -> {result_str}")
+                        return result_str
+
+            except Exception as e:
+                logger.warning(f"Error reading shortcuts in {user_dir.name}: {e}")
+
+        return None
+
+#    def _get_grid_target_dir(self, game: DetectedGame) -> Optional[Path]:
+#       Removed - we now Iterate all.
+
 

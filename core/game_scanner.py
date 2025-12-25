@@ -140,19 +140,11 @@ class GameScanner:
                 # But let's be safe.
                 
                 if app_name:
-                    # Non-Steam Game ID calculation for Grid:
-                    # It's complicated. Just use the one in the file if possible.
-                    # The 'appid' in shortcuts.vdf is usually the signed 32-bit version.
-                    # Grid images use the 64-bit version or specific shifts.
-                    # Let's Calculate the 64-bit Grid ID just in case.
-
+                    # User Instruction: Generate AppID exactly like Steam using Exe and AppName.
+                    # Ignore stored AppID to ensure correctness.
                     
                     grid_id = self._calculate_grid_id(exe_path, app_name)
-                    logger.debug(f"Found Non-Steam Game: {app_name}, Exe: {exe_path}, CalcID: {grid_id}")
-                    
-                    # If raw_id exists, we can double check. 
-                    # But usually for Grid images, we TRUST the calculated CRC32 id 
-                    # OR we simply treat the string ID as the key.
+                    logger.debug(f"Computed Non-Steam ID: {grid_id} (Name: '{app_name}', Exe: '{exe_path}')")
                     
                     results.append(DetectedGame(
                         app_id=str(grid_id),
@@ -170,23 +162,9 @@ class GameScanner:
     @staticmethod
     def _calculate_grid_id(exe_path: str, app_name: str) -> str:
         """
-        Calculates the Steam Grid ID for a non-Steam game.
-        Algorithm: (crc32(exe + name) | 0x80000000) << 32 | 0x02000000
-        Wait, actually:
-        The "Grid ID" used for filenames is simply the high 32 bits?
-        Let's look at standard references.
-        
-        Legacy (Big Picture Old): CRC32(exe + name) | 0x80000000
-        New Library (Grid): 
-        It seems Steam now uses a 64-bit ID. 
-        Top 32 bits = CRC32(exe + name) | 0x80000000
-        Bottom 32 bits = 0x02000000
-        
-        So the ID is (Top << 32) | Bottom
-        
-        Note: exe_path and app_name should be theoretically just concatenated.
-        But quotes might matter?
-        Standard: str(exe) + str(name)
+        Calculates the Steam ID for a non-Steam game.
+        User specified strict logic: crc32(exe+name) | 0x80000000
+        This result is used for the filename in config/grid.
         """
         if not exe_path:
             exe_path = ""
@@ -196,8 +174,14 @@ class GameScanner:
         target = (exe_path + app_name).encode('utf-8')
         crc = zlib.crc32(target) & 0xffffffff # unsigned 32-bit
         
-        top_32 = crc | 0x80000000
-        full_64 = (top_32 << 32) | 0x02000000
+        # Legacy/Shortcut ID (unsigned 32-bit with high bit set)
+        shortcut_id = crc | 0x80000000
         
-        return str(full_64)
+        # User requested using this generated ID directly.
+        # Note: In some contexts Steam uses the 64-bit ID (shortcut_id << 32 | 0x02000000).
+        # But if the user insists this is the one for filenames, we use this.
+        # Actually, many sources say filenames use the 32-bit ID.
+        # Let's rely on the user instructions "Generate the AppID exactly like Steam ... return str(zlib.crc32...)"
+        
+        return str(shortcut_id)
 
